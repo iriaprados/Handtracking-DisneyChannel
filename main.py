@@ -21,12 +21,12 @@ def main():
     # Verify the actual resolution of the camera 
     real_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     real_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    print(f"[INFO] Cámara abierta — Resolución: {real_w}x{real_h}")
+    print(f"[INFO] Camera open - Resolution: {real_w}x{real_h}")
 
     # Initialize the hand detector
     detector = HandDetector()
-    print("[INFO] MediaPipe inicializado correctamente")
-    print("[INFO] Presiona 'q' para salir\n")
+    print("[INFO] MediaPipeinizialate correctly")
+    print("[INFO] Push 'q' for exit\n")
 
     # Make that each iteration of the loop processes a new frame from the camera
     while True:
@@ -34,7 +34,7 @@ def main():
         success, frame = cap.read()
 
         if not success: # Error on frame capture
-            print("[WARN] Frame vacío recibido, reintentando...")
+            print("[WARN] Frame error or empty frame received, skipping...")
             continue
         
         # Horizantal capture for mirror effect - as a selfie 
@@ -78,13 +78,13 @@ def main():
         # Check for 'q' key press to exit
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
-            print("[INFO] Cerrando...")
+            print("[INFO] Closing...")
             break
 
     # Cleanup: release camera and close windows
     cap.release()
     cv2.destroyAllWindows()
-    print("[INFO] Recursos liberados. ¡Hasta pronto!")
-.
+    print("[INFO] Recurses cleaned up, goodbye!")
+
 if __name__ == "__main__":
     main()
