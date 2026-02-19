@@ -1,113 +1,118 @@
 import cv2
-import numpy as np
 import sys
 import config
-from hand_tracking import HandDetector   
+from hand_tracking import HandDetector
+from hand_tracking.gestures import is_wand_gesture
+from drawing import MagicCanvas
+
+
+def draw_ui(frame, real_w, real_h, hand_detected, wand_active, show_debug):
+    
+    # Wand status l
+    if wand_active:
+        label = " WAND ACTIVE"
+        color = (50, 220, 255)   
+    elif hand_detected:
+        label = " hAND DETECTED — UPLIFT INDEX TO DRAW "
+        color = config.COLOR_GREEN
+    else:
+        label = " FIND YOUR HAND AND LIFT YOUR INDEX FINGER TO DRAW "
+        color = config.COLOR_RED
+
+    cv2.putText(frame, label, (20, real_h - 20),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)
+
+    # Instructions
+    instructions = "'q': exit | 'c': clean | 'd': debug"
+    cv2.putText(frame, instructions, (20, real_h - 50),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.55, config.COLOR_WHITE, 1, cv2.LINE_AA)
+
+    # Debug mode status
+    if show_debug:
+        cv2.putText(frame, "DEBUG ON", (real_w - 130, 35),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, config.COLOR_GREEN, 2, cv2.LINE_AA)
 
 
 def main():
-   
+    
+    # Inizialize camera
     cap = cv2.VideoCapture(config.CAMERA_INDEX)
-
     if not cap.isOpened():
-        print(f"[ERROR] The camera is not available (index {config.CAMERA_INDEX})")
+        print(f"[ERROR] It is not possible to open the camera (index {config.CAMERA_INDEX})")
         sys.exit(1)
 
-    # Configuration for the camera capture
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  config.FRAME_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.FRAME_HEIGHT)
     cap.set(cv2.CAP_PROP_FPS,          config.FPS_TARGET)
 
-    # Verify the actual resolution of the camera 
     real_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     real_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    print(f"[INFO] Camera open - Resolution: {real_w}x{real_h}")
+    print(f"[INFO] Camera open— {real_w}x{real_h}")
 
-    # Initialize the hand detector
-    detector = HandDetector()
-    print("[INFO] MediaPipe initialized correctly")
-    print("[INFO] Press 'q' to exit, 'c' to clear canvas\n")
+    # Inizialize modules
+    detector   = HandDetector()
+    canvas     = MagicCanvas(real_w, real_h)
+    show_debug = False   # toggle con tecla 'd'
 
-    # Drawing with canvas setup
-    canvas = np.zeros((real_h, real_w, 3), dtype=np.uint8) 
-    previous_point = None  
-    
+    print("[INFO] Done. UPLIFT INDEX TO DRAW.")
+    print("[INFO] 'q' exit | 'c' clean | 'd' debug landmarks\n")
+
+    # Main loop
     while True:
-        # Capture a new frame
         success, frame = cap.read()
-
-        if not success: # Error on frame capture
-            print("[WARN] Frame error or empty frame received, skipping...")
+        if not success:
             continue
-        
-        # Horizantal capture for mirror effect - as a selfie 
-        frame = cv2.flip(frame, 1) # Num. 1 define horizontal capture 
 
-        # Hand detection and drawing landmarks on the frame
-        hand_detected = detector.find_hands(frame, draw=True)
+        frame = cv2.flip(frame, 1)   # espejo horizontal
 
-        # If a hand is detected, get the position of the index finger 
+        # Hand detection and landmarks extraction
+        hand_detected = detector.find_hands(frame, draw=show_debug)
+
+        wand_active = False
+
         if hand_detected:
-            pos = detector.get_landmark_pos(frame, config.INDEX_TIP)
-            if pos:
-                x, y = pos
-                
-                # Draw a line from the previous point to the current point
-                if previous_point is not None:
-                    cv2.line(canvas, previous_point, (x, y), config.COLOR_BLUE, 3)
-                
-                # Update the previous point to the current position
-                previous_point = (x, y)
-                
-                # Circle at the current position of the index finger
-                cv2.circle(frame, (x, y), 12, config.COLOR_YELLOW, cv2.FILLED) 
-                
-                # Informative text on the screen 
-                cv2.putText(
-                    frame,
-                    f"Indice: ({x}, {y})",
-                    (20, 50),              # text position (x, y)
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1.0,                  
-                    config.COLOR_YELLOW,
-                    2,                    
-                    cv2.LINE_AA            
-                )
-        # else:
-        #     # Si no hay mano, "levantar el lápiz" (resetear punto anterior)
-        #     previous_point = None
+            landmarks = detector.get_all_landmarks(frame) # 21 landmarks in pixel coordinates [(x, y), ...]
+            wand_active = is_wand_gesture(landmarks) 
+            tip = detector.get_landmark_pos(frame, config.INDEX_TIP)
 
-        # Superpose the canvas with the drawings on the original frame
-        frame = cv2.add(frame, canvas)
-        
-        # Status indicator 
-        status_text  = "Hand detected!" if hand_detected else "Buscando mano..."
-        status_color = config.COLOR_GREEN if hand_detected else config.COLOR_RED
-        cv2.putText(frame, status_text, (20, real_h - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, status_color, 2, cv2.LINE_AA)
+            if tip: # If the index tip is detected, we can draw
+                x, y = tip
 
-        # Screen instructions
-        cv2.putText(frame, "'q': salir | 'c': limpiar canvas", (20, real_h - 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, config.COLOR_WHITE, 1, cv2.LINE_AA)
+                if wand_active:
+                    # Activate drawing mode and draw on the canvas
+                    canvas.start_stroke()
+                    canvas.draw_point(x, y)
+                else:
+                    # Unvalid gesture → lift the pen to avoid connecting strokes
+                    canvas.end_stroke()
 
-        # Show the frame with hand landmarks and status
+                canvas.draw_wand_cursor(frame, x, y, wand_active)
+
+        else:
+            canvas.end_stroke()
+
+        # Fusion canvas and frame
+        frame = canvas.overlay(frame)
+
+      
+        draw_ui(frame, real_w, real_h, hand_detected, wand_active, show_debug)
         cv2.imshow(config.WINDOW_NAME, frame)
 
-        # Check for key presses
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
-            print("[INFO] Closing...")
             break
         elif key == ord("c"):
-            # Clear the canvas and reset previous point
-            canvas = np.zeros((real_h, real_w, 3), dtype=np.uint8)
-            previous_point = None
-            print("[INFO] Canvas cleared!")
+            canvas.clear()
+            print("[INFO] Canvas limpiado")
+        elif key == ord("d"):
+            show_debug = not show_debug
+            print(f"[INFO] Debug landmarks: {'ON' if show_debug else 'OFF'}")
 
-    # Cleanup: release camera and close windows
+    # Clean information
     cap.release()
     cv2.destroyAllWindows()
-    print("[INFO] Recurses cleaned up")
+    print("[INFO] Close.")
+
 
 if __name__ == "__main__":
     main()
